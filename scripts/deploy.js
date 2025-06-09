@@ -6,50 +6,52 @@
 // global scope, and execute the script.
 const { ethers } = require('hardhat');
 
-const hre = require("hardhat");
-
 const tokens = (n) => {
-  return ethers.utils.parseUnits(n.toString(), 'ether')
+  return ethers.parseUnits(n.toString(), 'ether');
 }
 
 async function main() {
-  let [buyer, seller, inspector, lender] = await ethers.getSigners()
+  const [buyer, seller, inspector, lender] = await ethers.getSigners();
 
-  const RealEstate = await ethers.getContractFactory('RealEstate')
-  realEstate = await RealEstate.deploy()
-  await realEstate.deployed()
-  console.log("RealEstate deployed to:", realEstate.address)
-  console.log("minting 3 properties...")
+  // Deploy RealEstate contract
+  const RealEstate = await ethers.getContractFactory('RealEstate');
+  const realEstate = await RealEstate.deploy();
+  console.log("RealEstate deployed to:", realEstate.target); // Use .target instead of .address
 
-  for(let i = 0; i < 3; i++){
-    let transaction = await realEstate.connect(seller).mint(`https://ipfs.io/ipfs/QmQVcpsjrA6cr1iJjZAodYwmPekYgbnXGo4DFubJiLc2EB/${i + 1}.json`)
-    await transaction.wait()
+  console.log("Minting 3 properties...");
+  for(let i = 0; i < 3; i++) {
+    const transaction = await realEstate.connect(seller).mint(
+      `https://ipfs.io/ipfs/QmQVcpsjrA6cr1iJjZAodYwmPekYgbnXGo4DFubJiLc2EB/${i + 1}.json`
+    );
+    await transaction.wait();
   }
 
-  const Escrow = await ethers.getContractFactory('Escrow')
-  escrow = await Escrow.deploy(
-    realEstate.address,
+  // Deploy Escrow contract
+  const Escrow = await ethers.getContractFactory('Escrow');
+  const escrow = await Escrow.deploy(
+    realEstate.target, // Use .target here
     seller.address,
     inspector.address,
     lender.address
-  )
-  await escrow.deployed()
+  );
+  
+  console.log("Escrow deployed to:", escrow.target);
 
-  for(let i = 0; i < 3; i++){
-    let transaction = await realEstate.connect(seller).approve(escrow.address, i + 1)
-    await transaction.wait()
+  // Approve and list properties
+  for(let i = 1; i <= 3; i++) {
+    let transaction = await realEstate.connect(seller).approve(escrow.target, i);
+    await transaction.wait();
+    
+    transaction = await escrow.connect(seller).list(
+      i,
+      tokens(20 - (i-1)*5), // Prices: 20, 15, 10 ETH
+      tokens(10 - (i-1)*5), // Deposits: 10, 5, 5 ETH
+      buyer.address
+    );
+    await transaction.wait();
   }
 
-  transaction = await escrow.connect(seller).list(1,tokens(20),tokens(10), buyer.address)
-  await transaction.wait()
-
-  transaction = await escrow.connect(seller).list(2,tokens(15),tokens(5), buyer.address)
-  await transaction.wait()
-
-  transaction = await escrow.connect(seller).list(3,tokens(10),tokens(5), buyer.address)
-  await transaction.wait()
-
-  console.log("FINISHED")
+  console.log("Finished deployment and listing!");
 }
 
 // We recommend this pattern to be able to use async/await everywhere

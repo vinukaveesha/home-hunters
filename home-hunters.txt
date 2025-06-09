@@ -1,0 +1,572 @@
+# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# production
+/build # for frontend production builds
+
+# misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Hardhat files
+cache
+artifacts
+typechain
+typechain-types# dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+# testing
+/coverage
+
+# production
+/build # for frontend production builds
+
+# misc
+.DS_Store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Hardhat files
+cache
+artifacts
+typechain
+typechain-types
+
+================================================================================
+File: contracts\Escrow.sol
+Size: 3.23 kB
+================================================================================
+
+//SPDX-License-Identifier: Unlicense
+pragma solidity ^0.8.19;
+
+interface IERC721 {
+    function transferFrom(
+        address _from,
+        address _to,
+        uint256 _id
+    ) external;
+}
+
+contract Escrow {
+    address public nftAddress;
+    address payable public seller;
+    address public lender;
+    address public inspector;
+
+    modifier onlySeller() {
+        require(msg.sender == seller, "Only seller can call this method");
+        _;
+    }
+
+    modifier onlyBuyer(uint256 _nftID) {
+        require(msg.sender == buyer[_nftID], "Only seller can call this method");
+        _;
+    }
+
+    modifier onlyInspector() {
+        require(msg.sender == inspector, "Only the inspector can call this method");
+        _;
+    }
+
+    mapping(uint256 => bool) public isListed;
+    mapping(uint256 => uint256) public purchasePrice;
+    mapping(uint256 => uint256) public escrowAmount;
+    mapping(uint256 => address) public buyer;
+    mapping(uint256 => bool) public inspectionPassed;
+    mapping(uint256 => mapping(address => bool)) public approval;
+
+    constructor(address _nftAddress, address payable _seller, address _lender, address _inspector) {
+        nftAddress = _nftAddress;
+        seller = _seller;
+        lender = _lender;
+        inspector = _inspector;
+    }
+
+    function list(uint256 _nftID, uint256 _purchasePrice, uint256 _escrowAmount, address _buyer) public payable onlySeller {
+        IERC721(nftAddress).transferFrom(msg.sender, address(this), _nftID);
+        isListed[_nftID] = true;
+        purchasePrice[_nftID] = _purchasePrice;
+        escrowAmount[_nftID] = _escrowAmount;
+        buyer[_nftID] = _buyer;
+    }
+
+    function depositEarnestMoney(uint256 _nftID) public payable onlyBuyer(_nftID) {
+        require(msg.value >= escrowAmount[_nftID], "not enough ETH");
+    }
+
+    receive() external payable {}
+
+    function getBalance() public view returns (uint256) {
+        return address(this).balance;
+    }
+
+    function updateInspectionStatus(uint256 _nftID, bool _inspectionPassed) public onlyInspector {
+        inspectionPassed[_nftID] = _inspectionPassed;
+    }
+
+    function approveSale(uint256 _nftID) public {
+        approval[_nftID][msg.sender] = true;
+    }
+
+    function finalizeSale(uint256 _nftID) public {
+        require(inspectionPassed[_nftID], "Inspection not passed");
+        require(approval[_nftID][seller], "Seller did not approve");
+        require(approval[_nftID][buyer[_nftID]], "Buyer did not approve");
+        require(approval[_nftID][lender], "Lender did not approve");
+        require(address(this).balance >= purchasePrice[_nftID], "Not enough ETH to purchase");
+
+        isListed[_nftID] = false;
+
+        (bool success, ) = payable(seller).call{value: address(this).balance}("");
+        require(success, "Transfer failed");
+
+        IERC721(nftAddress).transferFrom(address(this), buyer[_nftID], _nftID);
+    }
+
+    function cancelSale(uint256 _nftID) public {
+        if(!inspectionPassed[_nftID]) {
+            payable(buyer[_nftID]).transfer(address(this).balance);
+        }else{
+            payable(seller).transfer(address(this).balance);
+        }
+    }
+}
+
+================================================================================
+File: contracts\IERC721.sol
+Size: 200 B
+================================================================================
+
+//SPDX-License-Identifier: Unlicense
+pragma solidity ^0.8.19;
+
+interface IERC721 {
+    function transferFrom(
+        address _from,
+        address _to,
+        uint256 _id
+    ) external;
+}
+
+================================================================================
+File: contracts\Lock.sol
+Size: 1.04 kB
+================================================================================
+
+// SPDX-License-Identifier: UNLICENSED
+pragma solidity ^0.8.19;
+
+// Uncomment this line to use console.log
+// import "hardhat/console.sol";
+
+contract Lock {
+    uint public unlockTime;
+    address payable public owner;
+
+    event Withdrawal(uint amount, uint when);
+
+    constructor(uint _unlockTime) payable {
+        require(
+            block.timestamp < _unlockTime,
+            "Unlock time should be in the future"
+        );
+
+        unlockTime = _unlockTime;
+        owner = payable(msg.sender);
+    }
+
+    function withdraw() public {
+        // Uncomment this line, and the import of "hardhat/console.sol", to print a log in your terminal
+        // console.log("Unlock time is %o and block timestamp is %o", unlockTime, block.timestamp);
+
+        require(block.timestamp >= unlockTime, "You can't withdraw yet");
+        require(msg.sender == owner, "You aren't the owner");
+
+        emit Withdrawal(address(this).balance, block.timestamp);
+
+        owner.transfer(address(this).balance);
+    }
+}
+
+
+================================================================================
+File: contracts\RealEstate.sol
+Size: 821 B
+================================================================================
+
+//SPDX-License-Identifier: Unlicense
+pragma solidity ^0.8.19;
+
+import "@openzeppelin/contracts/utils/Counters.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+
+contract RealEstate is ERC721URIStorage{
+    using Counters for Counters.Counter;
+    Counters.Counter private _tokenIds;
+
+    constructor() ERC721("RealEstate", "REAL") {}
+
+    function mint(string memory tokenURI) public returns (uint256) {
+        _tokenIds.increment();
+
+        uint256 newItemId = _tokenIds.current();
+        _mint(msg.sender, newItemId);
+        _setTokenURI(newItemId, tokenURI);
+
+        return newItemId;
+    }
+
+    function totalSupply() public view returns (uint256) {
+        return _tokenIds.current();
+    }
+}
+
+================================================================================
+File: hardhat.config.ts
+Size: 916 B
+================================================================================
+
+import { HardhatUserConfig } from "hardhat/config";
+import "@nomicfoundation/hardhat-toolbox";
+
+const config: HardhatUserConfig = {
+  solidity: "0.8.19", // Ensure this matches your pragma statements in your .sol files
+  networks: {
+    localhost: {
+      url: "http://127.0.0.1:8545/", // Default Hardhat network URL
+    },
+    // You can add other networks here, e.g., Sepolia testnet
+    // sepolia: {
+    //   url: process.env.SEPOLIA_RPC_URL || "", // Use environment variable for RPC URL
+    //   accounts: process.env.PRIVATE_KEY !== undefined ? [process.env.PRIVATE_KEY] : [], // Use environment variable for private key
+    // },
+  },
+  // Optionally, you can add named accounts for easier access in scripts/tests
+  // namedAccounts: {
+  //   deployer: {
+  //     default: 0, // here this will by default take the first account as deployer
+  //   },
+  // },
+};
+
+export default config;
+
+================================================================================
+File: ignition\modules\Lock.ts
+Size: 617 B
+================================================================================
+
+// This setup uses Hardhat Ignition to manage smart contract deployments.
+// Learn more about it at https://hardhat.org/ignition
+
+import { buildModule } from "@nomicfoundation/hardhat-ignition/modules";
+
+const JAN_1ST_2030 = 1893456000;
+const ONE_GWEI: bigint = 1_000_000_000n;
+
+const LockModule = buildModule("LockModule", (m) => {
+  const unlockTime = m.getParameter("unlockTime", JAN_1ST_2030);
+  const lockedAmount = m.getParameter("lockedAmount", ONE_GWEI);
+
+  const lock = m.contract("Lock", [unlockTime], {
+    value: lockedAmount,
+  });
+
+  return { lock };
+});
+
+export default LockModule;
+
+
+================================================================================
+File: package.json
+Size: 412 B
+================================================================================
+
+{
+  "name": "homehunters",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "hardhat": "^2.24.2"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.7.3"
+  }
+}
+
+
+================================================================================
+File: README.md
+Size: 403 B
+================================================================================
+
+# Sample Hardhat Project
+
+This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a Hardhat Ignition module that deploys that contract.
+
+Try running some of the following tasks:
+
+```shell
+npx hardhat help
+npx hardhat test
+REPORT_GAS=true npx hardhat test
+npx hardhat node
+npx hardhat ignition deploy ./ignition/modules/Lock.ts
+```
+
+
+================================================================================
+File: scripts\deploy.js
+Size: 2.06 kB
+================================================================================
+
+// We require the Hardhat Runtime Environment explicitly here. This is optional
+// but useful for running the script in a standalone fashion through `node <script>`.
+//
+// You can also run a script with `npx hardhat run <script>`. If you do that, Hardhat
+// will compile your contracts, add the Hardhat Runtime Environment's members to the
+// global scope, and execute the script.
+const { ethers } = require('hardhat');
+
+const hre = require("hardhat");
+
+const tokens = (n) => {
+  return ethers.utils.parseUnits(n.toString(), 'ether')
+}
+
+async function main() {
+  let [buyer, seller, inspector, lender] = await ethers.getSigners()
+
+  const RealEstate = await ethers.getContractFactory('RealEstate')
+  realEstate = await RealEstate.deploy()
+  await realEstate.deployed()
+  console.log("RealEstate deployed to:", realEstate.address)
+  console.log("minting 3 properties...")
+
+  for(let i = 0; i < 3; i++){
+    let transaction = await realEstate.connect(seller).mint(`https://ipfs.io/ipfs/QmQVcpsjrA6cr1iJjZAodYwmPekYgbnXGo4DFubJiLc2EB/${i + 1}.json`)
+    await transaction.wait()
+  }
+
+  const Escrow = await ethers.getContractFactory('Escrow')
+  escrow = await Escrow.deploy(
+    realEstate.address,
+    seller.address,
+    inspector.address,
+    lender.address
+  )
+  await escrow.deployed()
+
+  for(let i = 0; i < 3; i++){
+    let transaction = await realEstate.connect(seller).approve(escrow.address, i + 1)
+    await transaction.wait()
+  }
+
+  transaction = await escrow.connect(seller).list(1,tokens(20),tokens(10), buyer.address)
+  await transaction.wait()
+
+  transaction = await escrow.connect(seller).list(2,tokens(15),tokens(5), buyer.address)
+  await transaction.wait()
+
+  transaction = await escrow.connect(seller).list(3,tokens(10),tokens(5), buyer.address)
+  await transaction.wait()
+
+  console.log("FINISHED")
+}
+
+// We recommend this pattern to be able to use async/await everywhere
+// and properly handle errors.
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
+
+================================================================================
+File: test\Escrow.ts
+Size: 0 B
+================================================================================
+
+
+
+================================================================================
+File: test\Lock.ts
+Size: 4.47 kB
+================================================================================
+
+import {
+  time,
+  loadFixture,
+} from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
+import { expect } from "chai";
+import hre from "hardhat";
+
+describe("Lock", function () {
+  // We define a fixture to reuse the same setup in every test.
+  // We use loadFixture to run this setup once, snapshot that state,
+  // and reset Hardhat Network to that snapshot in every test.
+  async function deployOneYearLockFixture() {
+    const ONE_YEAR_IN_SECS = 365 * 24 * 60 * 60;
+    const ONE_GWEI = 1_000_000_000;
+
+    const lockedAmount = ONE_GWEI;
+    const unlockTime = (await time.latest()) + ONE_YEAR_IN_SECS;
+
+    // Contracts are deployed using the first signer/account by default
+    const [owner, otherAccount] = await hre.ethers.getSigners();
+
+    const Lock = await hre.ethers.getContractFactory("Lock");
+    const lock = await Lock.deploy(unlockTime, { value: lockedAmount });
+
+    return { lock, unlockTime, lockedAmount, owner, otherAccount };
+  }
+
+  describe("Deployment", function () {
+    it("Should set the right unlockTime", async function () {
+      const { lock, unlockTime } = await loadFixture(deployOneYearLockFixture);
+
+      expect(await lock.unlockTime()).to.equal(unlockTime);
+    });
+
+    it("Should set the right owner", async function () {
+      const { lock, owner } = await loadFixture(deployOneYearLockFixture);
+
+      expect(await lock.owner()).to.equal(owner.address);
+    });
+
+    it("Should receive and store the funds to lock", async function () {
+      const { lock, lockedAmount } = await loadFixture(
+        deployOneYearLockFixture
+      );
+
+      expect(await hre.ethers.provider.getBalance(lock.target)).to.equal(
+        lockedAmount
+      );
+    });
+
+    it("Should fail if the unlockTime is not in the future", async function () {
+      // We don't use the fixture here because we want a different deployment
+      const latestTime = await time.latest();
+      const Lock = await hre.ethers.getContractFactory("Lock");
+      await expect(Lock.deploy(latestTime, { value: 1 })).to.be.revertedWith(
+        "Unlock time should be in the future"
+      );
+    });
+  });
+
+  describe("Withdrawals", function () {
+    describe("Validations", function () {
+      it("Should revert with the right error if called too soon", async function () {
+        const { lock } = await loadFixture(deployOneYearLockFixture);
+
+        await expect(lock.withdraw()).to.be.revertedWith(
+          "You can't withdraw yet"
+        );
+      });
+
+      it("Should revert with the right error if called from another account", async function () {
+        const { lock, unlockTime, otherAccount } = await loadFixture(
+          deployOneYearLockFixture
+        );
+
+        // We can increase the time in Hardhat Network
+        await time.increaseTo(unlockTime);
+
+        // We use lock.connect() to send a transaction from another account
+        await expect(lock.connect(otherAccount).withdraw()).to.be.revertedWith(
+          "You aren't the owner"
+        );
+      });
+
+      it("Shouldn't fail if the unlockTime has arrived and the owner calls it", async function () {
+        const { lock, unlockTime } = await loadFixture(
+          deployOneYearLockFixture
+        );
+
+        // Transactions are sent using the first signer by default
+        await time.increaseTo(unlockTime);
+
+        await expect(lock.withdraw()).not.to.be.reverted;
+      });
+    });
+
+    describe("Events", function () {
+      it("Should emit an event on withdrawals", async function () {
+        const { lock, unlockTime, lockedAmount } = await loadFixture(
+          deployOneYearLockFixture
+        );
+
+        await time.increaseTo(unlockTime);
+
+        await expect(lock.withdraw())
+          .to.emit(lock, "Withdrawal")
+          .withArgs(lockedAmount, anyValue); // We accept any value as `when` arg
+      });
+    });
+
+    describe("Transfers", function () {
+      it("Should transfer the funds to the owner", async function () {
+        const { lock, unlockTime, lockedAmount, owner } = await loadFixture(
+          deployOneYearLockFixture
+        );
+
+        await time.increaseTo(unlockTime);
+
+        await expect(lock.withdraw()).to.changeEtherBalances(
+          [owner, lock],
+          [lockedAmount, -lockedAmount]
+        );
+      });
+    });
+  });
+});
+
+
+================================================================================
+File: tsconfig.json
+Size: 243 B
+================================================================================
+
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "commonjs",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  }
+}
+
